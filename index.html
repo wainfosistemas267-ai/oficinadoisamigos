@@ -184,9 +184,10 @@ let responsibles = {
 };
 let adminPin = '116365';
 let currentProfile = localStorage.getItem('oficina_profile') || null;
-let quoteDraft = { client:'', clientId:null, telefone:'', area:'mecanica', labor:0, items:[] };
+let quoteDraft = { client:'', clientId:null, telefone:'', cpf:'', area:'mecanica', labor:0, items:[] };
 let osDraft = { client:'', clientId:null, telefone:'', cpf:'', placa:'', date:'', area:'mecanica', labor:0, items:[], notes:'' };
 let clientSearch = '';
+let lookupQuery = '';
 let clientEditId = null;
 let clientHistoryOpenId = null;
 let partSearch = '';
@@ -205,10 +206,18 @@ function save(){
     .then(()=> setSyncStatus('Sincronizado ✓', 'var(--ok)'))
     .catch(e=>{ console.error('Erro ao salvar no Firebase:', e); setSyncStatus('Erro ao salvar — veja o console', 'var(--danger)'); });
 }
+function safeRender(fn, label){
+  try{ fn(); }catch(e){ console.error('Erro ao renderizar '+label+':', e); }
+}
 function renderAll(){
   if(!currentProfile){ renderLock(); return; }
   showAppUI();
-  renderPainel(); renderEstoque(); renderClientes(); renderOrcamentos(); renderOS();
+  switchTab('painel');
+  safeRender(renderPainel, 'Painel');
+  safeRender(renderEstoque, 'Estoque');
+  safeRender(renderClientes, 'Clientes');
+  safeRender(renderOrcamentos, 'Orçamentos');
+  safeRender(renderOS, 'OS');
 }
 function startSync(){
   DOC_REF.onSnapshot(doc=>{
@@ -284,6 +293,28 @@ function clientPhoneFor(clientId){
   if(!phone){ phone = prompt('Número de WhatsApp do cliente (com DDD):','') || ''; }
   return phone;
 }
+function normalizeCpf(s){ return (s||'').replace(/\D/g,''); }
+function onCpfInput(prefix){
+  const inp = document.getElementById(prefix+'-cpf');
+  if(!inp) return;
+  const digits = normalizeCpf(inp.value);
+  if(digits.length !== 11) return;
+  const match = clients.find(c=> normalizeCpf(c.cpf) === digits);
+  if(!match) return;
+  const cursor = inp.selectionStart;
+  if(prefix==='q'){
+    quoteDraft.clientId = match.id; quoteDraft.client = match.name;
+    quoteDraft.telefone = match.phone||''; quoteDraft.cpf = inp.value;
+    renderOrcamentos();
+  } else {
+    osDraft.clientId = match.id; osDraft.client = match.name;
+    osDraft.telefone = match.phone||''; osDraft.cpf = inp.value;
+    osDraft.placa = (match.vehicles && match.vehicles.length===1) ? match.vehicles[0].placa : osDraft.placa;
+    renderOS();
+  }
+  const inp2 = document.getElementById(prefix+'-cpf');
+  if(inp2){ inp2.focus(); inp2.setSelectionRange(cursor, cursor); }
+}
 
 // ---------- PERFIL / TRAVA DE ACESSO ----------
 function renderLock(){
@@ -299,7 +330,7 @@ function renderLock(){
       <div class="lock-choice" style="margin-top:14px">
         <button class="btn secondary" onclick="askPin('mecanica')">Mecânica — Ramiro Henrique</button>
         <button class="btn secondary" onclick="askPin('pintura')">Pintura e Lanternagem — Jorge</button>
-        <button class="btn secondary" onclick="askPin('admin')">Administrador (vê tudo)</button>
+        <button class="btn secondary" onclick="askPin('admin')">Suporte (vê tudo)</button>
       </div>
       <div id="pin-area"></div>
     </div>`;
@@ -340,7 +371,7 @@ function logoutProfile(){
 function showAppUI(){
   document.getElementById('lock-screen').style.display = 'none';
   document.getElementById('nav').style.display = 'flex';
-  const label = isAdmin() ? 'Administrador' : `${areaLabel(currentProfile)} — ${responsibles[currentProfile].name}`;
+  const label = isAdmin() ? 'Suporte' : `${areaLabel(currentProfile)} — ${responsibles[currentProfile].name}`;
   document.getElementById('profile-badge').innerHTML = `Perfil: <strong>${label}</strong><button onclick="logoutProfile()">trocar perfil</button>`;
 }
 
@@ -474,7 +505,7 @@ function renderEstoque(){
   if(isAdmin()){
     responsibleRows += `
       <div class="row">
-        <div><label>PIN do Administrador</label><input id="admin-pin" type="password" value="${escapeHtml(adminPin)}" placeholder="opcional" onchange="saveAdminPin()"></div>
+        <div><label>PIN do Suporte</label><input id="admin-pin" type="password" value="${escapeHtml(adminPin)}" placeholder="opcional" onchange="saveAdminPin()"></div>
       </div>`;
   }
 
@@ -584,6 +615,41 @@ function clientHistory(c){
   const os = osList.filter(o=> o.clientId===c.id || (!o.clientId && o.client===c.name));
   return {qs, os};
 }
+function findClientsByCpfOrPlaca(q){
+  const query = (q||'').trim();
+  if(!query) return [];
+  const digits = normalizeCpf(query);
+  const plateQuery = query.toUpperCase().replace(/[\s-]/g,'');
+  return clients.filter(c=>{
+    const cpfMatch = digits.length>=3 && normalizeCpf(c.cpf).includes(digits);
+    const plateMatch = plateQuery.length>=2 && (c.vehicles||[]).some(v=>(v.placa||'').toUpperCase().replace(/[\s-]/g,'').includes(plateQuery));
+    return cpfMatch || plateMatch;
+  });
+}
+function renderLookupResults(){
+  const results = findClientsByCpfOrPlaca(lookupQuery);
+  if(results.length===0) return '<div class="empty">Nenhum cliente encontrado com esse CPF ou placa.</div>';
+  const areas = visibleAreas();
+  return results.map(c=>{
+    const qs = quotes.filter(q=>(q.clientId===c.id || (!q.clientId && q.client===c.name)) && areas.includes(q.area));
+    const os = osList.filter(o=>(o.clientId===c.id || (!o.clientId && o.client===c.name)) && areas.includes(o.area));
+    const vehiclesText = (c.vehicles||[]).map(v=>v.placa+(v.modelo?' · '+v.modelo:'')).join(', ') || 'nenhum veículo cadastrado';
+    return `
+      <div class="client-card" style="margin-top:12px">
+        <strong>${escapeHtml(c.name)}</strong>
+        <small class="hint">${c.cpf?`CPF ${escapeHtml(c.cpf)} · `:''}${c.phone?`Tel: ${escapeHtml(c.phone)} · `:''}Veículos: ${escapeHtml(vehiclesText)}</small>
+      </div>
+      ${qs.length===0 && os.length===0 ? '<div class="empty">Nenhum orçamento ou OS para este cliente.</div>' : ''}
+      ${qs.slice().reverse().map(q=>renderQuoteCard(q)).join('')}
+      ${os.slice().reverse().map(o=>renderOsCard(o)).join('')}
+    `;
+  }).join('');
+}
+function renderLookupPanel(){
+  const el = document.getElementById('lookup-results');
+  if(!el) return;
+  el.innerHTML = lookupQuery.trim() ? renderLookupResults() : '<small class="hint">Digite um CPF ou placa pra puxar o histórico completo do cliente, com todos os orçamentos e OS.</small>';
+}
 function renderClientes(){
   const el = document.getElementById('tab-clientes');
   const term = clientSearch.toLowerCase();
@@ -593,6 +659,11 @@ function renderClientes(){
   );
   const editing = clientEditId ? clients.find(c=>c.id===clientEditId) : null;
   el.innerHTML = `
+    <div class="panel">
+      <h2>Consultar histórico</h2>
+      <input id="lookup-input" placeholder="Digite o CPF ou a placa do veículo" value="${escapeHtml(lookupQuery)}" oninput="lookupQuery=this.value; renderLookupPanel();">
+      <div id="lookup-results">${lookupQuery.trim() ? renderLookupResults() : '<small class="hint">Digite um CPF ou placa pra puxar o histórico completo do cliente, com todos os orçamentos e OS.</small>'}</div>
+    </div>
     <div class="panel">
       <h2>${editing ? `Editando cliente — ${escapeHtml(editing.name)}` : 'Novo cliente'}</h2>
       <div class="row">
@@ -708,8 +779,10 @@ function renderOrcamentos(){
           </select>
         </div>
         <div><label>Nome do cliente</label><input id="q-client" value="${escapeHtml(quoteDraft.client)}" placeholder="Nome do cliente"></div>
+        <div><label>CPF</label><input id="q-cpf" value="${escapeHtml(quoteDraft.cpf)}" placeholder="000.000.000-00" oninput="onCpfInput('q')"></div>
         <div><label>Telefone do cliente</label><input id="q-telefone" value="${escapeHtml(quoteDraft.telefone)}" placeholder="(00) 00000-0000"></div>
       </div>
+      <small class="hint">Digitando o CPF completo de um cliente já cadastrado, o nome e o telefone preenchem sozinhos.</small>
       <label>Adicionar peça ao orçamento</label>
       <div class="item-line">
         <select id="q-part">
@@ -741,7 +814,7 @@ function renderOrcamentos(){
 function selectQuoteClient(val){
   if(!val){ quoteDraft.clientId = null; renderOrcamentos(); return; }
   const c = clients.find(x=>x.id==val);
-  if(c){ quoteDraft.clientId = c.id; quoteDraft.client = c.name; quoteDraft.telefone = c.phone||''; }
+  if(c){ quoteDraft.clientId = c.id; quoteDraft.client = c.name; quoteDraft.telefone = c.phone||''; quoteDraft.cpf = c.cpf||''; }
   renderOrcamentos();
 }
 function setQuoteArea(area){
@@ -758,22 +831,24 @@ function addQuoteItem(){
   const p = parts.find(x=>x.id===id);
   quoteDraft.client = document.getElementById('q-client').value;
   quoteDraft.telefone = document.getElementById('q-telefone').value;
+  quoteDraft.cpf = document.getElementById('q-cpf').value;
   quoteDraft.labor = document.getElementById('q-labor').value;
   quoteDraft.items.push({partId:p.id, name:p.name, qty, price:sellPrice(p)});
   renderOrcamentos();
 }
 function removeQuoteItem(i){ quoteDraft.items.splice(i,1); renderOrcamentos(); }
-function clearQuoteDraft(){ quoteDraft = {client:'', clientId:null, telefone:'', area: isAdmin()?'mecanica':currentProfile, labor:0, items:[]}; renderOrcamentos(); }
+function clearQuoteDraft(){ quoteDraft = {client:'', clientId:null, telefone:'', cpf:'', area: isAdmin()?'mecanica':currentProfile, labor:0, items:[]}; renderOrcamentos(); }
 function saveQuote(){
   const client = document.getElementById('q-client').value.trim();
   const telefone = document.getElementById('q-telefone').value.trim();
+  const cpf = document.getElementById('q-cpf').value.trim();
   const labor = parseFloat(document.getElementById('q-labor').value)||0;
   const area = quoteDraft.area;
   if(!client){ alert('Informe o nome do cliente.'); return; }
   if(quoteDraft.items.length===0 && labor<=0){ alert('Adicione ao menos uma peça ou um valor de mão de obra.'); return; }
   const total = quoteDraft.items.reduce((s,it)=>s+it.qty*it.price,0) + labor;
   const resp = responsibles[area];
-  const rec = {id: quoteDraft.id || nextQuoteN, client, clientId: quoteDraft.clientId||null, telefone, area, responsibleName: resp.name, responsiblePhone: resp.phone, date: quoteDraft.date || new Date().toLocaleDateString('pt-BR'), items:quoteDraft.items, labor, total};
+  const rec = {id: quoteDraft.id || nextQuoteN, client, clientId: quoteDraft.clientId||null, telefone, cpf, area, responsibleName: resp.name, responsiblePhone: resp.phone, date: quoteDraft.date || new Date().toLocaleDateString('pt-BR'), items:quoteDraft.items, labor, total};
   if(!quoteDraft.id){ nextQuoteN++; }
   quotes.push(rec);
   save(); clearQuoteDraft();
@@ -784,7 +859,7 @@ function renderQuoteCard(q){
       <strong style="flex:2">Orçamento #${q.id} — ${escapeHtml(q.client)}</strong>
       <span class="tag area-${q.area}" style="flex:0">${areaLabel(q.area)}</span>
     </div>
-    <small class="hint">Emitido em ${q.date} · Responsável: ${escapeHtml(q.responsibleName)}${q.responsiblePhone?` · Tel: ${escapeHtml(q.responsiblePhone)}`:''}${q.telefone?` · Tel. cliente: ${escapeHtml(q.telefone)}`:''}</small>
+    <small class="hint">Emitido em ${q.date} · Responsável: ${escapeHtml(q.responsibleName)}${q.responsiblePhone?` · Tel: ${escapeHtml(q.responsiblePhone)}`:''}${q.telefone?` · Tel. cliente: ${escapeHtml(q.telefone)}`:''}${q.cpf?` · CPF ${escapeHtml(q.cpf)}`:''}</small>
     <table style="margin-top:8px"><tbody>${q.items.map(it=>`<tr><td>${escapeHtml(it.name)}</td><td class="right">${it.qty} × ${brl(it.price)}</td><td class="right">${brl(it.qty*it.price)}</td></tr>`).join('')}
     ${q.labor ? `<tr><td>Mão de obra</td><td></td><td class="right">${brl(q.labor)}</td></tr>` : ''}
     </tbody></table>
@@ -833,6 +908,7 @@ function printQuote(id){
   <div class="sub">Emitido em ${q.date}</div>
   <div class="box grid">
     <div><span>Cliente</span>${escapeHtml(q.client)}</div>
+    <div><span>CPF</span>${escapeHtml(q.cpf)||'—'}</div>
     <div><span>Telefone do cliente</span>${escapeHtml(q.telefone)||'—'}</div>
     <div><span>Responsável</span>${escapeHtml(q.responsibleName)}${q.responsiblePhone?` — ${escapeHtml(q.responsiblePhone)}`:''}</div>
   </div>
@@ -849,7 +925,7 @@ function printQuote(id){
 function deleteQuote(id){ if(!confirm('Excluir este orçamento?')) return; quotes = quotes.filter(q=>q.id!==id); save(); renderAll(); }
 function editQuote(id){
   const q = quotes.find(x=>x.id===id);
-  quoteDraft = { id:q.id, client:q.client, clientId:q.clientId||null, telefone:q.telefone||'', area:q.area||'mecanica', date:q.date, labor:q.labor||0, items:q.items.map(it=>({...it})) };
+  quoteDraft = { id:q.id, client:q.client, clientId:q.clientId||null, telefone:q.telefone||'', cpf:q.cpf||'', area:q.area||'mecanica', date:q.date, labor:q.labor||0, items:q.items.map(it=>({...it})) };
   quotes = quotes.filter(x=>x.id!==id);
   save(); renderOrcamentos();
   document.getElementById('tab-orcamentos').scrollIntoView({behavior:'smooth'});
@@ -858,7 +934,7 @@ function quoteToOS(id){
   const q = quotes.find(x=>x.id===id);
   const c = q.clientId ? clients.find(x=>x.id===q.clientId) : null;
   const placa = c && c.vehicles && c.vehicles.length===1 ? c.vehicles[0].placa : '';
-  osDraft = { client:q.client, clientId:q.clientId||null, telefone:q.telefone||(c?c.phone:''), cpf:c?c.cpf:'', placa, date:todayIso(), area:q.area||'mecanica', labor:0, items:q.items.map(it=>({...it})), notes:'' };
+  osDraft = { client:q.client, clientId:q.clientId||null, telefone:q.telefone||(c?c.phone:''), cpf:q.cpf||(c?c.cpf:''), placa, date:todayIso(), area:q.area||'mecanica', labor:0, items:q.items.map(it=>({...it})), notes:'' };
   switchTab('os'); renderOS();
 }
 
@@ -909,9 +985,10 @@ function renderOS(){
       <div class="row">
         <div><label>Cliente (nome completo)</label><input id="os-client" value="${escapeHtml(osDraft.client)}" placeholder="Nome do cliente"></div>
         <div><label>Telefone do cliente</label><input id="os-telefone" value="${escapeHtml(osDraft.telefone)}" placeholder="(00) 00000-0000"></div>
-        <div><label>CPF</label><input id="os-cpf" value="${escapeHtml(osDraft.cpf)}" placeholder="000.000.000-00"></div>
+        <div><label>CPF</label><input id="os-cpf" value="${escapeHtml(osDraft.cpf)}" placeholder="000.000.000-00" oninput="onCpfInput('os')"></div>
         <div><label>Placa do veículo</label><input id="os-placa" value="${escapeHtml(osDraft.placa)}" placeholder="ABC-1D23" style="text-transform:uppercase"></div>
       </div>
+      <small class="hint">Digitando o CPF completo de um cliente já cadastrado, os dados dele preenchem sozinhos.</small>
       <div class="row"><div><label>Data</label><input id="os-date" type="date" value="${osDraft.date || todayIso()}"></div></div>
       <label>Adicionar peça</label>
       <div class="item-line">
