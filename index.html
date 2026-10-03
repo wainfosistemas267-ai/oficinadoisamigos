@@ -685,9 +685,24 @@ function renderClientCard(c){
     ${open ? `
       ${qs.length===0 && os.length===0 ? '<div class="empty">Nenhum orçamento ou OS ainda.</div>' : ''}
       ${qs.map(q=>`<div class="row" style="align-items:center"><span style="flex:2">Orçamento #${q.id} — ${q.date}</span><span class="tag area-${q.area}">${areaLabel(q.area)}</span><span style="flex:0;font-weight:700">${brl(q.total)}</span></div>`).join('')}
-      ${os.map(o=>`<div class="row" style="align-items:center"><span style="flex:2">OS #${o.id} — ${o.date}</span><span class="tag ${o.status}">${statusLabel(o.status)}</span><span style="flex:0;font-weight:700">${brl(o.total)}</span></div>`).join('')}
+      ${os.map(o=>`<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
+        <div class="row" style="align-items:center"><span style="flex:2">OS #${o.id} — ${o.date}${daysAgoText(o.date)}${o.placa?' · '+escapeHtml(o.placa):''}</span><span class="tag ${o.status}">${statusLabel(o.status)}</span><span style="flex:0;font-weight:700">${brl(o.total)}</span></div>
+        <div style="margin:4px 0 0 12px;font-size:13px">
+          ${(o.items||[]).length===0 ? '<small class="hint">Nenhuma peça trocada nesta OS.</small>' : (o.items||[]).map(it=>`<div>• ${it.qty}x ${escapeHtml(it.name)}</div>`).join('')}
+          ${o.labor ? `<div><small class="hint">Mão de obra: ${brl(o.labor)}</small></div>` : ''}
+          ${o.notes ? `<div><small class="hint">Obs.: ${escapeHtml(o.notes)}</small></div>` : ''}
+        </div>
+      </div>`).join('')}
     ` : ''}
   </div>`;
+}
+function daysAgoText(dateStr){
+  if(!dateStr) return '';
+  const p = dateStr.split('/'); if(p.length!==3) return '';
+  const d = new Date(+p[2], +p[1]-1, +p[0]);
+  const days = Math.floor((new Date().setHours(0,0,0,0) - d.getTime())/86400000);
+  if(isNaN(days) || days<0) return '';
+  return days===0 ? ' (hoje)' : ` (há ${days} dia${days===1?'':'s'})`;
 }
 function toggleClientHistory(id){ clientHistoryOpenId = clientHistoryOpenId===id ? null : id; renderClientes(); }
 function addClient(){
