@@ -191,6 +191,8 @@ let clientEditId = null;
 let clientHistoryOpenId = null;
 let partSearch = '';
 let partEditId = null;
+let restockId = null;
+let partFormArea = 'mecanica';
 
 let draftAreaInit = false;
 function isAdmin(){ return currentProfile==='admin'; }
@@ -505,7 +507,9 @@ function renderEstoque(){
   const mecParts = parts.filter(p=>p.area==='mecanica' && matches(p));
   const pintParts = parts.filter(p=>p.area==='pintura' && matches(p));
   const editing = partEditId ? parts.find(p=>p.id===partEditId) : null;
-  const defaultArea = editing ? editing.area : (isAdmin() ? 'mecanica' : currentProfile);
+  const defaultArea = editing ? editing.area : (isAdmin() ? partFormArea : currentProfile);
+  const restock = (!editing && restockId) ? parts.find(p=>p.id===restockId && p.area===defaultArea) : null;
+  const savedParts = parts.filter(p=>p.area===defaultArea).slice().sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
 
   let responsibleRows = '';
   if(isAdmin() || currentProfile==='mecanica'){
@@ -541,24 +545,30 @@ function renderEstoque(){
       <h2>${editing ? `Editando peça — ${escapeHtml(editing.name)}` : 'Adicionar peça'}</h2>
       <div class="row">
         <div><label>Área</label>
-          <select id="p-area" ${isAdmin()?'':'disabled'}>
+          <select id="p-area" ${isAdmin()?'':'disabled'} onchange="setPartFormArea(this.value)">
             ${isAdmin() ? `
             <option value="mecanica" ${defaultArea==='mecanica'?'selected':''}>Mecânica</option>
             <option value="pintura" ${defaultArea==='pintura'?'selected':''}>Pintura e Lanternagem</option>
             ` : `<option value="${defaultArea}" selected>${areaLabel(defaultArea)}</option>`}
           </select>
         </div>
-        <div><label>Nome da peça</label><input id="p-name" value="${editing?escapeHtml(editing.name):''}" placeholder="Ex: Pastilha de freio"></div>
-        <div><label>Código</label><input id="p-code" value="${editing?escapeHtml(editing.code||''):''}" placeholder="Ex: PF-220"></div>
+        ${editing ? '' : `<div><label>Peça já cadastrada</label>
+          <select id="p-pick" onchange="pickSavedPart(this.value)">
+            <option value="">— Nova peça (digitar o nome) —</option>
+            ${savedParts.map(x=>`<option value="${x.id}" ${restock&&restock.id===x.id?'selected':''}>${escapeHtml(x.name)}${x.code?' ('+escapeHtml(x.code)+')':''} — estoque: ${x.stock}</option>`).join('')}
+          </select>
+        </div>`}
+        <div><label>Nome da peça</label><input id="p-name" value="${restock?escapeHtml(restock.name):(editing?escapeHtml(editing.name):'')}" placeholder="Ex: Pastilha de freio" ${restock?'disabled':''}></div>
+        <div><label>Código</label><input id="p-code" value="${restock?escapeHtml(restock.code||''):(editing?escapeHtml(editing.code||''):'')}" placeholder="Ex: PF-220" ${restock?'disabled':''}></div>
       </div>
       <div class="row">
-        <div><label>Preço de compra (R$)</label><input id="p-buy" type="number" step="0.01" min="0" value="${editing?editing.buyPrice:''}"></div>
-        <div><label>Margem (%)</label><input id="p-margin" type="number" step="1" min="0" value="${editing?editing.margin:30}"></div>
-        <div><label>Qtd. em estoque</label><input id="p-stock" type="number" step="1" min="0" value="${editing?editing.stock:0}"></div>
+        <div><label>Preço de compra (R$)</label><input id="p-buy" type="number" step="0.01" min="0" value="${editing?editing.buyPrice:(restock?restock.buyPrice:'')}"></div>
+        <div><label>Margem (%)</label><input id="p-margin" type="number" step="1" min="0" value="${editing?editing.margin:(restock?restock.margin:30)}"></div>
+        <div><label>${restock ? `Qtd. que entrou (soma aos ${restock.stock} em estoque)` : 'Qtd. em estoque'}</label><input id="p-stock" type="number" step="1" min="0" value="${editing?editing.stock:(restock?'':0)}" ${restock?'placeholder="Ex: 10"':''}></div>
       </div>
       <div class="row">
-        <button class="btn" onclick="addPart()">${editing ? 'Salvar alterações' : 'Adicionar ao estoque'}</button>
-        ${editing ? '<button class="btn secondary" onclick="cancelEditPart()">Cancelar</button>' : ''}
+        <button class="btn" onclick="addPart()">${editing ? 'Salvar alterações' : (restock ? 'Lançar entrada no estoque' : 'Adicionar ao estoque')}</button>
+        ${(editing||restock) ? '<button class="btn secondary" onclick="cancelEditPart()">Cancelar</button>' : ''}
       </div>
     </div>
     <div class="panel">
@@ -602,9 +612,22 @@ function saveAdminPin(){
   adminPin = document.getElementById('admin-pin').value.trim();
   save();
 }
-function editPart(id){ partEditId = id; renderEstoque(); document.getElementById('tab-estoque').scrollIntoView({behavior:'smooth'}); }
-function cancelEditPart(){ partEditId = null; renderEstoque(); }
+function editPart(id){ partEditId = id; restockId = null; renderEstoque(); document.getElementById('tab-estoque').scrollIntoView({behavior:'smooth'}); }
+function cancelEditPart(){ partEditId = null; restockId = null; renderEstoque(); }
+function setPartFormArea(a){ partFormArea = a; restockId = null; renderEstoque(); }
+function pickSavedPart(id){ restockId = id ? parseInt(id) : null; renderEstoque(); }
 function addPart(){
+  if(!partEditId && restockId){
+    const rp = parts.find(x=>x.id===restockId);
+    if(rp){
+      const buyR = parseFloat(document.getElementById('p-buy').value)||0;
+      const marginR = parseFloat(document.getElementById('p-margin').value)||0;
+      const qtyR = parseInt(document.getElementById('p-stock').value)||0;
+      if(qtyR<=0){ alert('Informe a quantidade que entrou no estoque.'); return; }
+      rp.buyPrice = buyR; rp.margin = marginR; rp.stock = rp.stock + qtyR;
+      restockId = null; save(); renderAll(); return;
+    }
+  }
   const area = document.getElementById('p-area').value;
   const name = document.getElementById('p-name').value.trim();
   const code = document.getElementById('p-code').value.trim();
@@ -612,6 +635,9 @@ function addPart(){
   const margin = parseFloat(document.getElementById('p-margin').value)||0;
   const stock = parseInt(document.getElementById('p-stock').value)||0;
   if(!name){ alert('Informe o nome da peça.'); return; }
+  if(!partEditId && parts.some(x=>x.area===area && x.name.trim().toLowerCase()===name.toLowerCase() && (x.code||'').trim().toLowerCase()===code.toLowerCase())){
+    alert('Essa peça já está cadastrada. Escolha ela em "Peça já cadastrada" para lançar só compra, % e quantidade.'); return;
+  }
   if(partEditId){
     const p = parts.find(x=>x.id===partEditId);
     Object.assign(p, {area, name, code, buyPrice:buy, margin, stock});
