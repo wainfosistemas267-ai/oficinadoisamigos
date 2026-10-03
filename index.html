@@ -402,6 +402,23 @@ function renderPainel(){
   const now = new Date();
   const mesNome = now.toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
 
+  // Peças (OS concluídas do mês): valor vendido, custo e lucro — separado da mão de obra
+  let pecasVendido = 0, pecasCusto = 0;
+  concluidas.forEach(o=> (o.items||[]).forEach(it=>{
+    const part = parts.find(x=>x.id===it.partId);
+    const sold = it.qty * it.price;
+    pecasVendido += sold;
+    // se a peça foi removida do estoque, o custo não é conhecido: entra só no valor vendido
+    pecasCusto += part ? it.qty * part.buyPrice : sold;
+  }));
+  const pecasLucro = pecasVendido - pecasCusto;
+  const maoDeObra = concluidas.reduce((s,o)=> s + (Number(o.labor)||0), 0);
+  // Estoque atual
+  const stockParts = parts.filter(p=>areas.includes(p.area));
+  const estCusto = stockParts.reduce((s,p)=> s + p.buyPrice*p.stock, 0);
+  const estVenda = stockParts.reduce((s,p)=> s + sellPrice(p)*p.stock, 0);
+  const estLucro = estVenda - estCusto;
+
   const statBoxes = isAdmin() ? `
       <div class="stat-box"><div class="num">${brl(fatTotal)}</div><div class="lab">Total do mês</div></div>
       <div class="stat-box"><div class="num">${brl(fatMec)}</div><div class="lab">Mecânica</div></div>
@@ -415,6 +432,31 @@ function renderPainel(){
       <h2>Faturamento — ${mesNome}</h2>
       <small class="hint">Soma das OS com status "Concluída" emitidas neste mês.</small>
       <div class="stat-grid" style="margin-top:12px">${statBoxes}</div>
+    </div>
+    <div class="panel">
+      <h2>Peças — ${mesNome}</h2>
+      <small class="hint">Peças das OS "Concluída" emitidas neste mês. Lucro = valor de venda − preço de compra.</small>
+      <div class="stat-grid" style="margin-top:12px">
+        <div class="stat-box"><div class="num">${brl(pecasVendido)}</div><div class="lab">Valor das peças vendidas</div></div>
+        <div class="stat-box"><div class="num">${brl(pecasCusto)}</div><div class="lab">Custo das peças</div></div>
+        <div class="stat-box"><div class="num" style="color:var(--ok)">${brl(pecasLucro)}</div><div class="lab">Lucro das peças</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Mão de obra — ${mesNome}</h2>
+      <small class="hint">Valor de mão de obra das OS "Concluída" deste mês (separado das peças).</small>
+      <div class="stat-grid" style="margin-top:12px">
+        <div class="stat-box"><div class="num" style="color:var(--ok)">${brl(maoDeObra)}</div><div class="lab">Lucro de mão de obra</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Estoque — valor e lucro</h2>
+      <small class="hint">Considera todas as peças em estoque agora (quantidade × preço).</small>
+      <div class="stat-grid" style="margin-top:12px">
+        <div class="stat-box"><div class="num">${brl(estCusto)}</div><div class="lab">Valor de compra do estoque</div></div>
+        <div class="stat-box"><div class="num">${brl(estVenda)}</div><div class="lab">Valor de venda do estoque</div></div>
+        <div class="stat-box"><div class="num" style="color:var(--ok)">${brl(estLucro)}</div><div class="lab">Lucro previsto do estoque</div></div>
+      </div>
     </div>
     <div class="panel">
       <h2>Ordens de serviço — ${mesNome}</h2>
