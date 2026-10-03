@@ -184,8 +184,8 @@ let responsibles = {
 };
 let adminPin = '116365';
 let currentProfile = localStorage.getItem('oficina_profile') || null;
-let quoteDraft = { client:'', clientId:null, telefone:'', area:'mecanica', labor:0, items:[] };
-let osDraft = { client:'', clientId:null, telefone:'', cpf:'', placa:'', date:'', area:'mecanica', labor:0, items:[], notes:'' };
+let quoteDraft = { client:'', clientId:null, telefone:'', km:'', area:'mecanica', labor:0, items:[] };
+let osDraft = { client:'', clientId:null, telefone:'', cpf:'', placa:'', km:'', date:'', area:'mecanica', labor:0, items:[], notes:'' };
 let clientSearch = '';
 let clientEditId = null;
 let clientHistoryOpenId = null;
@@ -258,6 +258,10 @@ if('serviceWorker' in navigator){
   window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(e=>console.log('Service worker não registrado:', e)));
 }
 
+function kmText(km){
+  const n = parseInt(String(km||'').replace(/\D/g,''));
+  return isNaN(n) ? '' : n.toLocaleString('pt-BR') + ' km';
+}
 function brl(n){ return 'R$ ' + (Number(n)||0).toFixed(2).replace('.',','); }
 function sellPrice(p){ return p.buyPrice * (1 + p.margin/100); }
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -378,8 +382,8 @@ function exportOrcamentosCsv(){
 }
 function exportOsCsv(){
   const areas = visibleAreas();
-  const rows = [['Nº','Data','Área','Cliente','CPF','Placa','Responsável','Status','Mão de obra','Total']];
-  osList.filter(o=>areas.includes(o.area)).forEach(o=> rows.push([o.id, o.date, areaLabel(o.area), o.client, o.cpf||'', o.placa||'', o.responsibleName, statusLabel(o.status), (o.labor||0).toFixed(2).replace('.',','), o.total.toFixed(2).replace('.',',')]));
+  const rows = [['Nº','Data','Área','Cliente','CPF','Placa','KM','Responsável','Status','Mão de obra','Total']];
+  osList.filter(o=>areas.includes(o.area)).forEach(o=> rows.push([o.id, o.date, areaLabel(o.area), o.client, o.cpf||'', o.placa||'', o.km||'', o.responsibleName, statusLabel(o.status), (o.labor||0).toFixed(2).replace('.',','), o.total.toFixed(2).replace('.',',')]));
   downloadCsv('ordens_de_servico.csv', rows);
 }
 
@@ -686,7 +690,7 @@ function renderClientCard(c){
       ${qs.length===0 && os.length===0 ? '<div class="empty">Nenhum orçamento ou OS ainda.</div>' : ''}
       ${qs.map(q=>`<div class="row" style="align-items:center"><span style="flex:2">Orçamento #${q.id} — ${q.date}</span><span class="tag area-${q.area}">${areaLabel(q.area)}</span><span style="flex:0;font-weight:700">${brl(q.total)}</span></div>`).join('')}
       ${os.map(o=>`<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
-        <div class="row" style="align-items:center"><span style="flex:2">OS #${o.id} — ${o.date}${daysAgoText(o.date)}${o.placa?' · '+escapeHtml(o.placa):''}</span><span class="tag ${o.status}">${statusLabel(o.status)}</span><span style="flex:0;font-weight:700">${brl(o.total)}</span></div>
+        <div class="row" style="align-items:center"><span style="flex:2">OS #${o.id} — ${o.date}${daysAgoText(o.date)}${o.placa?' · '+escapeHtml(o.placa):''}${o.km?' · '+kmText(o.km):''}</span><span class="tag ${o.status}">${statusLabel(o.status)}</span><span style="flex:0;font-weight:700">${brl(o.total)}</span></div>
         <div style="margin:4px 0 0 12px;font-size:13px">
           ${(o.items||[]).length===0 ? '<small class="hint">Nenhuma peça trocada nesta OS.</small>' : (o.items||[]).map(it=>`<div>• ${it.qty}x ${escapeHtml(it.name)}</div>`).join('')}
           ${o.labor ? `<div><small class="hint">Mão de obra: ${brl(o.labor)}</small></div>` : ''}
@@ -771,6 +775,7 @@ function renderOrcamentos(){
         </div>
         <div><label>Nome do cliente</label><input id="q-client" value="${escapeHtml(quoteDraft.client)}" placeholder="Nome do cliente"></div>
         <div><label>Telefone do cliente</label><input id="q-telefone" value="${escapeHtml(quoteDraft.telefone)}" placeholder="(00) 00000-0000"></div>
+        <div><label>KM do carro</label><input id="q-km" type="number" min="0" step="1" inputmode="numeric" value="${escapeHtml(quoteDraft.km||'')}" placeholder="Ex: 85000"></div>
       </div>
       <label>Adicionar peça ao orçamento</label>
       <div class="item-line">
@@ -801,14 +806,15 @@ function renderOrcamentos(){
     </div>`;
 }
 function selectQuoteClient(val){
+  const kmEl = document.getElementById('q-km'); if(kmEl) quoteDraft.km = kmEl.value;
   if(!val){ quoteDraft.clientId = null; renderOrcamentos(); return; }
   const c = clients.find(x=>x.id==val);
   if(c){ quoteDraft.clientId = c.id; quoteDraft.client = c.name; quoteDraft.telefone = c.phone||''; }
   renderOrcamentos();
 }
 function setQuoteArea(area){
-  const cn=document.getElementById('q-client'), tl=document.getElementById('q-telefone'), lb=document.getElementById('q-labor');
-  if(cn) quoteDraft.client=cn.value; if(tl) quoteDraft.telefone=tl.value; if(lb) quoteDraft.labor=lb.value;
+  const cn=document.getElementById('q-client'), tl=document.getElementById('q-telefone'), lb=document.getElementById('q-labor'), kmEl=document.getElementById('q-km');
+  if(cn) quoteDraft.client=cn.value; if(tl) quoteDraft.telefone=tl.value; if(lb) quoteDraft.labor=lb.value; if(kmEl) quoteDraft.km=kmEl.value;
   if(area===quoteDraft.area) return;
   if(quoteDraft.items.length && !confirm('Trocar de área limpa as peças já adicionadas (cada área tem seu próprio estoque). Continuar?')) {
     renderOrcamentos(); return;
@@ -822,22 +828,24 @@ function addQuoteItem(){
   const p = parts.find(x=>x.id===id);
   quoteDraft.client = document.getElementById('q-client').value;
   quoteDraft.telefone = document.getElementById('q-telefone').value;
+  quoteDraft.km = document.getElementById('q-km').value;
   quoteDraft.labor = document.getElementById('q-labor').value;
   quoteDraft.items.push({partId:p.id, name:p.name, qty, price:sellPrice(p)});
   renderOrcamentos();
 }
 function removeQuoteItem(i){ quoteDraft.items.splice(i,1); renderOrcamentos(); }
-function clearQuoteDraft(){ quoteDraft = {client:'', clientId:null, telefone:'', area: isAdmin()?'mecanica':currentProfile, labor:0, items:[]}; renderOrcamentos(); }
+function clearQuoteDraft(){ quoteDraft = {client:'', clientId:null, telefone:'', km:'', area: isAdmin()?'mecanica':currentProfile, labor:0, items:[]}; renderOrcamentos(); }
 function saveQuote(){
   const client = document.getElementById('q-client').value.trim();
   const telefone = document.getElementById('q-telefone').value.trim();
+  const km = document.getElementById('q-km').value.trim();
   const labor = parseFloat(document.getElementById('q-labor').value)||0;
   const area = quoteDraft.area;
   if(!client){ alert('Informe o nome do cliente.'); return; }
   if(quoteDraft.items.length===0 && labor<=0){ alert('Adicione ao menos uma peça ou um valor de mão de obra.'); return; }
   const total = quoteDraft.items.reduce((s,it)=>s+it.qty*it.price,0) + labor;
   const resp = responsibles[area];
-  const rec = {id: quoteDraft.id || nextQuoteN, client, clientId: quoteDraft.clientId||null, telefone, area, responsibleName: resp.name, responsiblePhone: resp.phone, createdBy: quoteDraft.createdBy || currentProfile, date: quoteDraft.date || new Date().toLocaleDateString('pt-BR'), items:quoteDraft.items, labor, total};
+  const rec = {id: quoteDraft.id || nextQuoteN, client, clientId: quoteDraft.clientId||null, telefone, km, area, responsibleName: resp.name, responsiblePhone: resp.phone, createdBy: quoteDraft.createdBy || currentProfile, date: quoteDraft.date || new Date().toLocaleDateString('pt-BR'), items:quoteDraft.items, labor, total};
   if(!quoteDraft.id){ nextQuoteN++; }
   quotes.push(rec);
   save(); clearQuoteDraft();
@@ -848,7 +856,7 @@ function renderQuoteCard(q){
       <strong style="flex:2">Orçamento #${q.id} — ${escapeHtml(q.client)}</strong>
       <span class="tag area-${q.area}" style="flex:0">${areaLabel(q.area)}</span>
     </div>
-    <small class="hint">Emitido em ${q.date} · Responsável: ${escapeHtml(q.responsibleName)}${q.responsiblePhone?` · Tel: ${escapeHtml(q.responsiblePhone)}`:''}${q.telefone?` · Tel. cliente: ${escapeHtml(q.telefone)}`:''}</small>
+    <small class="hint">Emitido em ${q.date} · Responsável: ${escapeHtml(q.responsibleName)}${q.responsiblePhone?` · Tel: ${escapeHtml(q.responsiblePhone)}`:''}${q.telefone?` · Tel. cliente: ${escapeHtml(q.telefone)}`:''}${q.km?` · KM: ${kmText(q.km)}`:''}</small>
     <table style="margin-top:8px"><tbody>${q.items.map(it=>`<tr><td>${escapeHtml(it.name)}</td><td class="right">${it.qty} × ${brl(it.price)}</td><td class="right">${brl(it.qty*it.price)}</td></tr>`).join('')}
     ${q.labor ? `<tr><td>Mão de obra</td><td></td><td class="right">${brl(q.labor)}</td></tr>` : ''}
     </tbody></table>
@@ -869,7 +877,7 @@ function sendQuoteWhatsApp(id){
   if(!num){ return; }
   const itemsText = q.items.map(it=>`• ${it.name} — ${it.qty}x ${brl(it.price)} = ${brl(it.qty*it.price)}`).join('\n');
   const laborText = q.labor ? `• Mão de obra — ${brl(q.labor)}\n` : '';
-  const text = `Olá ${q.client}! Segue o orçamento #${q.id} da Oficina Dois Amigos (${areaLabel(q.area)}):\n\n${itemsText}\n${laborText}\nTotal: ${brl(q.total)}\nResponsável: ${q.responsibleName}\nQualquer dúvida, estamos à disposição!`;
+  const text = `Olá ${q.client}! Segue o orçamento #${q.id} da Oficina Dois Amigos (${areaLabel(q.area)}):${q.km?`\nKM do carro: ${kmText(q.km)}`:''}\n\n${itemsText}\n${laborText}\nTotal: ${brl(q.total)}\nResponsável: ${q.responsibleName}\nQualquer dúvida, estamos à disposição!`;
   window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank');
 }
 function printQuote(id){
@@ -898,6 +906,7 @@ function printQuote(id){
   <div class="box grid">
     <div><span>Cliente</span>${escapeHtml(q.client)}</div>
     <div><span>Telefone do cliente</span>${escapeHtml(q.telefone)||'—'}</div>
+    <div><span>KM do carro</span>${kmText(q.km)||'—'}</div>
     <div><span>Responsável</span>${escapeHtml(q.responsibleName)}${q.responsiblePhone?` — ${escapeHtml(q.responsiblePhone)}`:''}</div>
   </div>
   <table><thead><tr><th>Peça</th><th style="text-align:center">Qtd</th><th style="text-align:right">Unit.</th><th style="text-align:right">Subtotal</th></tr></thead>
@@ -913,7 +922,7 @@ function printQuote(id){
 function deleteQuote(id){ if(!confirm('Excluir este orçamento?')) return; quotes = quotes.filter(q=>q.id!==id); save(); renderAll(); }
 function editQuote(id){
   const q = quotes.find(x=>x.id===id);
-  quoteDraft = { id:q.id, client:q.client, clientId:q.clientId||null, telefone:q.telefone||'', area:q.area||'mecanica', createdBy:q.createdBy, date:q.date, labor:q.labor||0, items:q.items.map(it=>({...it})) };
+  quoteDraft = { id:q.id, client:q.client, clientId:q.clientId||null, telefone:q.telefone||'', km:q.km||'', area:q.area||'mecanica', createdBy:q.createdBy, date:q.date, labor:q.labor||0, items:q.items.map(it=>({...it})) };
   quotes = quotes.filter(x=>x.id!==id);
   save(); renderOrcamentos();
   document.getElementById('tab-orcamentos').scrollIntoView({behavior:'smooth'});
@@ -922,7 +931,7 @@ function quoteToOS(id){
   const q = quotes.find(x=>x.id===id);
   const c = q.clientId ? clients.find(x=>x.id===q.clientId) : null;
   const placa = c && c.vehicles && c.vehicles.length===1 ? c.vehicles[0].placa : '';
-  osDraft = { client:q.client, clientId:q.clientId||null, telefone:q.telefone||(c?c.phone:''), cpf:c?c.cpf:'', placa, date:todayIso(), area:q.area||'mecanica', labor:0, items:q.items.map(it=>({...it})), notes:'' };
+  osDraft = { client:q.client, clientId:q.clientId||null, telefone:q.telefone||(c?c.phone:''), cpf:c?c.cpf:'', placa, km:q.km||'', date:todayIso(), area:q.area||'mecanica', labor:0, items:q.items.map(it=>({...it})), notes:'' };
   switchTab('os'); renderOS();
 }
 
@@ -973,6 +982,7 @@ function renderOS(){
         <div><label>Telefone do cliente</label><input id="os-telefone" value="${escapeHtml(osDraft.telefone)}" placeholder="(00) 00000-0000"></div>
         <div><label>CPF</label><input id="os-cpf" value="${escapeHtml(osDraft.cpf)}" placeholder="000.000.000-00"></div>
         <div><label>Placa do veículo</label><input id="os-placa" value="${escapeHtml(osDraft.placa)}" placeholder="ABC-1D23" style="text-transform:uppercase"></div>
+        <div><label>KM do carro</label><input id="os-km" type="number" min="0" step="1" inputmode="numeric" value="${escapeHtml(osDraft.km||'')}" placeholder="Ex: 85000"></div>
       </div>
       <div class="row"><div><label>Data</label><input id="os-date" type="date" value="${osDraft.date || todayIso()}"></div></div>
       <label>Adicionar peça</label>
@@ -1006,6 +1016,7 @@ function renderOS(){
     </div>`;
 }
 function selectOsClient(val){
+  const kmEl = document.getElementById('os-km'); if(kmEl) osDraft.km = kmEl.value;
   if(!val){ osDraft.clientId = null; renderOS(); return; }
   const c = clients.find(x=>x.id==val);
   if(c){
@@ -1015,6 +1026,7 @@ function selectOsClient(val){
   renderOS();
 }
 function selectOsVehicle(vehicleId){
+  const kmEl = document.getElementById('os-km'); if(kmEl) osDraft.km = kmEl.value;
   const vehicles = osClientVehicles();
   const v = vehicles.find(x=>x.id==vehicleId);
   osDraft.placa = v ? v.placa : '';
@@ -1022,7 +1034,7 @@ function selectOsVehicle(vehicleId){
 }
 function setOsArea(area){
   const g=id=>document.getElementById(id);
-  if(g('os-client')){ osDraft.client=g('os-client').value; osDraft.telefone=g('os-telefone').value; osDraft.cpf=g('os-cpf').value; osDraft.placa=g('os-placa').value; osDraft.date=g('os-date').value; osDraft.labor=g('os-labor').value; osDraft.notes=g('os-notes').value; }
+  if(g('os-client')){ osDraft.client=g('os-client').value; osDraft.telefone=g('os-telefone').value; osDraft.cpf=g('os-cpf').value; osDraft.placa=g('os-placa').value; if(g('os-km')) osDraft.km=g('os-km').value; osDraft.date=g('os-date').value; osDraft.labor=g('os-labor').value; osDraft.notes=g('os-notes').value; }
   if(area===osDraft.area) return;
   if(osDraft.items.length && !confirm('Trocar de área limpa as peças já adicionadas (cada área tem seu próprio estoque). Continuar?')) {
     renderOS(); return;
@@ -1038,6 +1050,7 @@ function addOsItem(){
   osDraft.telefone = document.getElementById('os-telefone').value;
   osDraft.cpf = document.getElementById('os-cpf').value;
   osDraft.placa = document.getElementById('os-placa').value;
+  osDraft.km = document.getElementById('os-km').value;
   osDraft.date = document.getElementById('os-date').value;
   osDraft.labor = document.getElementById('os-labor').value;
   osDraft.notes = document.getElementById('os-notes').value;
@@ -1045,12 +1058,13 @@ function addOsItem(){
   renderOS();
 }
 function removeOsItem(i){ osDraft.items.splice(i,1); renderOS(); }
-function clearOsDraft(){ osDraft = {client:'', clientId:null, telefone:'', cpf:'', placa:'', date:'', area: isAdmin()?'mecanica':currentProfile, labor:0, items:[], notes:''}; renderOS(); }
+function clearOsDraft(){ osDraft = {client:'', clientId:null, telefone:'', cpf:'', placa:'', km:'', date:'', area: isAdmin()?'mecanica':currentProfile, labor:0, items:[], notes:''}; renderOS(); }
 function saveOS(){
   const client = document.getElementById('os-client').value.trim();
   const telefone = document.getElementById('os-telefone').value.trim();
   const cpf = document.getElementById('os-cpf').value.trim();
   const placa = document.getElementById('os-placa').value.trim().toUpperCase();
+  const km = document.getElementById('os-km').value.trim();
   const dateIso = document.getElementById('os-date').value || todayIso();
   const labor = parseFloat(document.getElementById('os-labor').value)||0;
   const notes = document.getElementById('os-notes').value.trim();
@@ -1062,7 +1076,7 @@ function saveOS(){
   if(short.length && !confirm('Estoque insuficiente para:\n' + short.join('\n') + '\n\nDeseja emitir a OS mesmo assim? O estoque ficará negativo.')) return;
   const total = osDraft.items.reduce((s,it)=>s+it.qty*it.price,0) + labor;
   const resp = responsibles[area];
-  const rec = {id: osDraft.id || nextOsN, client, clientId: osDraft.clientId||null, telefone, cpf, placa, area, responsibleName: resp.name, responsiblePhone: resp.phone, createdBy: osDraft.createdBy || currentProfile, date: isoToDisplay(dateIso), items:osDraft.items, labor, notes, total, status: osDraft.status || 'aberta'};
+  const rec = {id: osDraft.id || nextOsN, client, clientId: osDraft.clientId||null, telefone, cpf, placa, km, area, responsibleName: resp.name, responsiblePhone: resp.phone, createdBy: osDraft.createdBy || currentProfile, date: isoToDisplay(dateIso), items:osDraft.items, labor, notes, total, status: osDraft.status || 'aberta'};
   if(!osDraft.id){ nextOsN++; }
   adjustStock(osDraft.items, -1);
   osList.push(rec);
@@ -1076,7 +1090,7 @@ function renderOsCard(o){
       <span class="tag area-${o.area}">${areaLabel(o.area)}</span>
       <span class="tag ${o.status}">${statusLabel(o.status)}</span>
     </div>
-    <small class="hint">Emitida em ${o.date} · Responsável: ${escapeHtml(o.responsibleName)}${o.responsiblePhone?` · Tel: ${escapeHtml(o.responsiblePhone)}`:''}${o.cpf?` · CPF ${escapeHtml(o.cpf)}`:''}${o.placa?` · Placa ${escapeHtml(o.placa)}`:''}${o.telefone?` · Tel. cliente: ${escapeHtml(o.telefone)}`:''}</small>
+    <small class="hint">Emitida em ${o.date} · Responsável: ${escapeHtml(o.responsibleName)}${o.responsiblePhone?` · Tel: ${escapeHtml(o.responsiblePhone)}`:''}${o.cpf?` · CPF ${escapeHtml(o.cpf)}`:''}${o.placa?` · Placa ${escapeHtml(o.placa)}`:''}${o.km?` · KM: ${kmText(o.km)}`:''}${o.telefone?` · Tel. cliente: ${escapeHtml(o.telefone)}`:''}</small>
     <table style="margin-top:8px"><tbody>${o.items.map(it=>`<tr><td>${escapeHtml(it.name)}</td><td class="right">${it.qty} × ${brl(it.price)}</td><td class="right">${brl(it.qty*it.price)}</td></tr>`).join('')}
     ${o.labor ? `<tr><td>Mão de obra</td><td></td><td class="right">${brl(o.labor)}</td></tr>` : ''}
     </tbody></table>
@@ -1102,13 +1116,13 @@ function sendOsWhatsApp(id){
   if(!num){ return; }
   const itemsText = o.items.map(it=>`• ${it.name} — ${it.qty}x ${brl(it.price)} = ${brl(it.qty*it.price)}`).join('\n');
   const laborText = o.labor ? `• Mão de obra — ${brl(o.labor)}\n` : '';
-  const text = `Olá ${o.client}! Aqui é da Oficina Dois Amigos.\nOS #${o.id} (${areaLabel(o.area)}) — status: ${statusLabel(o.status)}\n\n${itemsText}\n${laborText}\nTotal: ${brl(o.total)}\nResponsável: ${o.responsibleName}\nQualquer dúvida, estamos à disposição!`;
+  const text = `Olá ${o.client}! Aqui é da Oficina Dois Amigos.\nOS #${o.id} (${areaLabel(o.area)}) — status: ${statusLabel(o.status)}${o.km?`\nKM do carro: ${kmText(o.km)}`:''}\n\n${itemsText}\n${laborText}\nTotal: ${brl(o.total)}\nResponsável: ${o.responsibleName}\nQualquer dúvida, estamos à disposição!`;
   window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank');
 }
 function editOS(id){
   const o = osList.find(x=>x.id===id);
   adjustStock(o.items, 1);
-  osDraft = { id:o.id, client:o.client, clientId:o.clientId||null, telefone:o.telefone||'', cpf:o.cpf||'', placa:o.placa||'', date:displayToIso(o.date), area:o.area||'mecanica', createdBy:o.createdBy, labor:o.labor||0, items:o.items.map(it=>({...it})), notes:o.notes||'', status:o.status };
+  osDraft = { id:o.id, client:o.client, clientId:o.clientId||null, telefone:o.telefone||'', cpf:o.cpf||'', placa:o.placa||'', km:o.km||'', date:displayToIso(o.date), area:o.area||'mecanica', createdBy:o.createdBy, labor:o.labor||0, items:o.items.map(it=>({...it})), notes:o.notes||'', status:o.status };
   osList = osList.filter(x=>x.id!==id);
   save(); renderAll();
   document.getElementById('tab-os').scrollIntoView({behavior:'smooth'});
@@ -1142,6 +1156,7 @@ function printOS(id){
     <div><span>Cliente</span>${escapeHtml(o.client)}</div>
     <div><span>CPF</span>${escapeHtml(o.cpf)||'—'}</div>
     <div><span>Placa do veículo</span>${escapeHtml(o.placa)||'—'}</div>
+    <div><span>KM do carro</span>${kmText(o.km)||'—'}</div>
     <div><span>Telefone do cliente</span>${escapeHtml(o.telefone)||'—'}</div>
     <div><span>Responsável</span>${escapeHtml(o.responsibleName)}${o.responsiblePhone?` — ${escapeHtml(o.responsiblePhone)}`:''}</div>
   </div>
